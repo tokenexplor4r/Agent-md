@@ -28,6 +28,7 @@ Do not assume these values. If any are missing, ask the user before proceeding.
 - Always validate that `amount > 0` before creating an invoice.
 - Always ensure `endTime > startTime` and both are valid Unix timestamps.
 - Use the correct decimal precision for the currency (6 decimals for USDC, 9 for SOL).
+- **Always verify payments on the server** using `validateInvoicePayment` before delivering any service. Never trust the client alone — clients can be spoofed.
 
 ## Supported Currencies
 
@@ -104,92 +105,7 @@ const agent = new PumpAgent(agentMint, "mainnet", connection);
 
 ## Wallet Integration (Frontend)
 
-To let users sign transactions in the browser, install the Solana wallet adapter:
-
-```bash
-npm install @solana/wallet-adapter-react @solana/wallet-adapter-react-ui @solana/wallet-adapter-wallets
-```
-
-### WalletProvider Component
-
-Create a provider that wraps your app:
-
-```tsx
-"use client";
-
-import { useMemo } from "react";
-import {
-  ConnectionProvider,
-  WalletProvider as SolanaWalletProvider,
-} from "@solana/wallet-adapter-react";
-import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
-import {
-  PhantomWalletAdapter,
-  SolflareWalletAdapter,
-} from "@solana/wallet-adapter-wallets";
-
-import "@solana/wallet-adapter-react-ui/styles.css";
-
-export default function WalletProvider({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const endpoint =
-    process.env.NEXT_PUBLIC_SOLANA_RPC_URL ||
-    "https://api.mainnet-beta.solana.com";
-
-  const wallets = useMemo(
-    () => [new PhantomWalletAdapter(), new SolflareWalletAdapter()],
-    [],
-  );
-
-  return (
-    <ConnectionProvider endpoint={endpoint}>
-      <SolanaWalletProvider wallets={wallets} autoConnect>
-        <WalletModalProvider>{children}</WalletModalProvider>
-      </SolanaWalletProvider>
-    </ConnectionProvider>
-  );
-}
-```
-
-### Wrap Your App Layout
-
-```tsx
-import WalletProvider from "./components/WalletProvider";
-
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="en">
-      <body>
-        <WalletProvider>{children}</WalletProvider>
-      </body>
-    </html>
-  );
-}
-```
-
-### Use Wallet Hooks in Components
-
-```tsx
-import { useWallet, useConnection } from "@solana/wallet-adapter-react";
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
-
-function PaymentComponent() {
-  const { publicKey, signTransaction, connected } = useWallet();
-  const { connection } = useConnection();
-
-  return (
-    <div>
-      <WalletMultiButton />
-      {connected && <p>Connected: {publicKey?.toBase58()}</p>}
-    </div>
-  );
-}
-```
-
-`WalletMultiButton` renders a connect/disconnect button. `useWallet()` gives you the user's `publicKey` and `signTransaction`. `useConnection()` gives you the active `Connection` for sending transactions.
+Install `@solana/wallet-adapter-react`, `@solana/wallet-adapter-react-ui`, and `@solana/wallet-adapter-wallets`. Use `useWallet()` for `publicKey` and `signTransaction`, and `useConnection()` for the active RPC connection. See [references/WALLET_INTEGRATION.md](references/WALLET_INTEGRATION.md) for the full WalletProvider setup, layout wrapping, and hook usage.
 
 ## Building Payment Instructions
 
@@ -197,15 +113,17 @@ Use `buildAcceptPaymentInstructions` to get all the instructions needed for a pa
 
 ### Parameters (`BuildAcceptPaymentParams`)
 
-| Parameter      | Type                         | Description                                       |
-|----------------|------------------------------|---------------------------------------------------|
-| `user`         | `PublicKey`                  | The payer's wallet address                        |
-| `currencyMint` | `PublicKey`                  | Mint address of the payment currency (USDC, wSOL) |
-| `amount`       | `bigint \| number \| string` | Price in the currency's smallest unit             |
-| `memo`         | `bigint \| number \| string` | Unique invoice identifier (random number)         |
-| `startTime`    | `bigint \| number \| string` | Unix timestamp — when the invoice becomes valid   |
-| `endTime`      | `bigint \| number \| string` | Unix timestamp — when the invoice expires         |
-| `tokenProgram` | `PublicKey` (optional)       | Token program for the currency (defaults to SPL Token) |
+| Parameter          | Type                         | Description                                       |
+|--------------------|------------------------------|---------------------------------------------------|
+| `user`             | `PublicKey`                  | The payer's wallet address                        |
+| `currencyMint`     | `PublicKey`                  | Mint address of the payment currency (USDC, wSOL) |
+| `amount`           | `bigint \| number \| string` | Price in the currency's smallest unit             |
+| `memo`             | `bigint \| number \| string` | Unique invoice identifier (random number)         |
+| `startTime`        | `bigint \| number \| string` | Unix timestamp — when the invoice becomes valid   |
+| `endTime`          | `bigint \| number \| string` | Unix timestamp — when the invoice expires         |
+| `tokenProgram`     | `PublicKey` (optional)       | Token program for the currency (defaults to SPL Token) |
+| `computeUnitLimit` | `number` (optional)          | Compute unit budget (default `92_849`). Increase if transactions fail with compute exceeded. |
+| `computeUnitPrice` | `number` (optional)          | Priority fee in microlamports per CU. If provided, a `SetComputeUnitPrice` instruction is prepended. |
 
 ### Example
 
@@ -222,15 +140,22 @@ const ixs = await agent.buildAcceptPaymentInstructions({
 
 ### What It Returns
 
-- **For SPL tokens (USDC):** A single `TransactionInstruction` — the accept-payment instruction.
-- **For native SOL:** Five instructions that handle wrapping/unwrapping automatically:
+The returned `TransactionInstruction[]` always starts with compute budget instructions, followed by the payment instructions:
+
+- **`SetComputeUnitLimit`** is always prepended (default `92_849` CU). Override via `computeUnitLimit` if your transactions fail with "compute exceeded".
+- **`SetComputeUnitPrice`** is prepended only when `computeUnitPrice` is provided. Use this to set a priority fee for faster landing during congestion.
+
+After the compute budget prefix:
+
+- **For SPL tokens (USDC):** The accept-payment instruction.
+- **For native SOL:** Instructions that handle wrapping/unwrapping automatically:
   1. Create the user's wrapped SOL token account (idempotent)
   2. Transfer SOL lamports into that token account
   3. Sync the native balance
   4. The accept-payment instruction
   5. Close the wrapped SOL account (returns rent back to user)
 
-You do not need to handle SOL wrapping yourself — `buildAcceptPaymentInstructions` does it for you.
+You do not need to handle SOL wrapping or compute budget yourself — `buildAcceptPaymentInstructions` does it for you.
 
 ### Important
 
@@ -256,10 +181,12 @@ function generateInvoiceParams() {
 }
 ```
 
-### Step 2: Build and Serialize the Transaction (Server)
+### Step 2: Build Transaction and Serialize as Base64 (Server)
+
+Build the payment instructions, assemble them into a full `Transaction` with a recent blockhash and fee payer, then serialize the unsigned transaction as a base64 string for the client.
 
 ```typescript
-import { Connection, PublicKey, Transaction } from "@solana/web3.js";
+import { Connection, PublicKey, Transaction, ComputeBudgetProgram } from "@solana/web3.js";
 import { PumpAgent } from "@pump-fun/agent-payments-sdk";
 
 async function buildPaymentTransaction(params: {
@@ -276,7 +203,7 @@ async function buildPaymentTransaction(params: {
   const agent = new PumpAgent(agentMint, "mainnet", connection);
   const userPublicKey = new PublicKey(params.userWallet);
 
-  const ixs = await agent.buildAcceptPaymentInstructions({
+  const instructions = await agent.buildAcceptPaymentInstructions({
     user: userPublicKey,
     currencyMint,
     amount: params.amount,
@@ -285,48 +212,81 @@ async function buildPaymentTransaction(params: {
     endTime: params.endTime,
   });
 
-  const transaction = new Transaction();
-  for (const ix of ixs) {
-    transaction.add(ix);
-  }
+  const { blockhash } = await connection.getLatestBlockhash("confirmed");
 
-  const { blockhash, lastValidBlockHeight } =
-    await connection.getLatestBlockhash();
-  transaction.recentBlockhash = blockhash;
-  transaction.feePayer = userPublicKey;
+  const tx = new Transaction();
+  tx.recentBlockhash = blockhash;
+  tx.feePayer = userPublicKey;
+  tx.add(
+    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100_000 }),
+    ...instructions
+  );
 
-  const serialized = transaction
+  const serializedTx = tx
     .serialize({ requireAllSignatures: false })
     .toString("base64");
 
-  return { transaction: serialized, blockhash, lastValidBlockHeight };
+  return { transaction: serializedTx };
 }
 ```
 
-The transaction is serialized without signatures so it can be sent to the client for signing.
+Return the base64 transaction string (and the invoice params like `memo`, `startTime`, `endTime`) to the client as JSON.
 
-### Step 3: Sign and Send the Transaction (Client)
+### Step 3: Deserialize, Sign, and Send the Transaction (Client)
+
+Deserialize the base64 transaction from the server, sign it with `signTransaction` from the wallet adapter, then send and confirm it. Call `useWallet()` and `useConnection()` only at the top level of your component; pass `signTransaction` and `connection` into the async helper so the async logic does not call hooks.
+
+**Async helper** (e.g. in a utils file or alongside your component):
 
 ```typescript
-import { Transaction } from "@solana/web3.js";
-import { useWallet, useConnection } from "@solana/wallet-adapter-react";
+import { Connection, Transaction } from "@solana/web3.js";
 
-async function signAndSendPayment(serializedTx: string) {
-  const { signTransaction } = useWallet();
-  const { connection } = useConnection();
+async function signAndSendPayment(
+  txBase64: string,
+  signTransaction: (tx: Transaction) => Promise<Transaction>,
+  connection: Connection
+): Promise<string> {
+  if (!signTransaction) {
+    throw new Error("Wallet does not support signing");
+  }
 
-  const txBytes = Buffer.from(serializedTx, "base64");
-  const tx = Transaction.from(txBytes);
+  const tx = Transaction.from(Buffer.from(txBase64, "base64"));
+  const signedTx = await signTransaction(tx);
 
-  const signed = await signTransaction!(tx);
-  const signature = await connection.sendRawTransaction(signed.serialize());
-  await connection.confirmTransaction(signature, "confirmed");
+  const signature = await connection.sendRawTransaction(signedTx.serialize(), {
+    skipPreflight: false,
+    preflightCommitment: "confirmed",
+  });
+
+  const latestBlockhash = await connection.getLatestBlockhash("confirmed");
+  await connection.confirmTransaction(
+    { signature, ...latestBlockhash },
+    "confirmed"
+  );
 
   return signature;
 }
 ```
 
-The user's wallet (Phantom, Solflare, etc.) prompts them to approve and sign. After signing, the transaction is submitted and confirmed on-chain.
+**Component usage** — call the hooks at the top level, then pass them into the helper (e.g. from a payment button handler):
+
+```typescript
+import { useWallet, useConnection } from "@solana/wallet-adapter-react";
+
+function PaymentButton({ txBase64 }: { txBase64: string }) {
+  const { signTransaction } = useWallet();
+  const { connection } = useConnection();
+
+  const handlePay = async () => {
+    if (!signTransaction) return;
+    await signAndSendPayment(txBase64, signTransaction, connection);
+  };
+
+  return <button onClick={handlePay}>Pay</button>;
+}
+```
+
+The wallet prompts the user to approve. After signing, the serialized transaction is submitted via `sendRawTransaction` and you wait for on-chain confirmation.
 
 ## Verify Payment
 
@@ -435,61 +395,21 @@ const endTime = new BN("1700086400");
        ↓
 2. Server: buildAcceptPaymentInstructions(...) → returns TransactionInstruction[]
        ↓
-3. Server: wraps in Transaction, sets blockhash + feePayer, serializes to base64
+3. Server: builds full Transaction (blockhash + feePayer + instructions) → serializes as base64
        ↓
-4. Client: deserializes, user signs with wallet adapter
+4. Client: deserializes base64 → Transaction.from(Buffer.from(txBase64, "base64"))
        ↓
-5. Client: sendRawTransaction → confirmTransaction
+5. Client: signTransaction(tx) — wallet prompts user to approve
        ↓
-6. Server: validateInvoicePayment(...) → returns true/false
+6. Client: connection.sendRawTransaction(signedTx.serialize()) → connection.confirmTransaction(signature)
        ↓
-7. Agent delivers the service (or asks user to retry)
+7. Server: validateInvoicePayment(...) → returns true/false (ALWAYS verify server-side)
+       ↓
+8. Agent delivers the service (or asks user to retry)
 ```
 
 ---
 
-## Scenario Tests
+## Scenario Tests & Troubleshooting
 
-### Scenario 1: Happy Path — Pay and Verify
-
-1. Agent generates invoice: amount `1000000` (1 USDC), memo `42`, startTime `1700000000`, endTime `1700086400`.
-2. Server calls `buildAcceptPaymentInstructions` and serializes the transaction.
-3. Client signs and submits the transaction on Solana.
-4. Server calls `validateInvoicePayment` with the same params.
-5. Returns `true`. Agent delivers the service.
-
-### Scenario 2: Verify Before Payment
-
-1. Agent generates invoice: amount `500000`, memo `7777`, valid for 1 hour.
-2. Server immediately calls `validateInvoicePayment` (user hasn't paid yet).
-3. Returns `false`.
-4. Agent tells the user payment is not confirmed and to try again after paying.
-
-### Scenario 3: Duplicate Payment Rejection
-
-1. Agent generates invoice with memo `99`.
-2. User pays successfully. `validateInvoicePayment` returns `true`.
-3. A second attempt to submit the same `acceptPayment` transaction is rejected by the on-chain program because the Invoice ID PDA is already initialized.
-
-### Scenario 4: Mismatched Parameters
-
-1. Agent generates invoice: amount `1000000`, memo `555`.
-2. User pays with a different amount (`2000000`) but same memo.
-3. `validateInvoicePayment` with original params returns `false` — the on-chain event has a different amount.
-
-### Scenario 5: Expired Invoice
-
-1. Agent generates invoice with `endTime` in the past.
-2. The on-chain program rejects the transaction (timestamp outside validity window).
-3. Agent should generate a new invoice with a valid time window.
-
----
-
-## Troubleshooting
-
-| Error | Cause | Fix |
-|---|---|---|
-| `validateInvoicePayment` returns `false` but user claims they paid | Transaction may still be confirming, or params don't match | Wait a few seconds and retry. Double-check that `amount`, `memo`, `startTime`, `endTime`, and `user` all match exactly. |
-| Invoice already paid | The Invoice ID PDA is already initialized | Generate a new invoice with a different `memo`. |
-| Insufficient balance | User's token account doesn't have enough tokens | Tell the user to fund their wallet before paying. |
-| Currency not supported | The `currencyMint` is not in the protocol's `GlobalConfig` | Use a supported currency (USDC, wSOL). |
+See [references/SCENARIOS.md](references/SCENARIOS.md) for detailed test scenarios (happy path, duplicate rejection, expired invoices, etc.) and a troubleshooting table for common errors.
