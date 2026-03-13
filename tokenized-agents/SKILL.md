@@ -18,6 +18,7 @@ Before writing any code, ask the user for the following if not already provided:
 2. **Payment currency** — USDC or SOL (determines the `currencyMint`).
 3. **Price / amount** — how much to charge per request, in the currency's smallest unit.
 4. **Service to deliver** — what the agent should do after payment is confirmed (generate content, access an API, etc.).
+5. **Solana RPC** — which solana rpc to use, we have some defaults if they don't provide.
 
 Do not assume these values. If any are missing, ask the user before proceeding.
 
