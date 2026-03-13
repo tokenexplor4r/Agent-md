@@ -57,7 +57,7 @@ AGENT_TOKEN_MINT_ADDRESS=<your-agent-mint-address>
 CURRENCY_MINT=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
 ```
 
-**RPC for mainnet-beta:** The default Solana public RPC (`https://api.mainnet-beta.solana.com`) does **not** support sending transactions. If the user has not provided their own RPC URL, use one of these free mainnet-beta endpoints that support `sendTransaction`:
+**RPC for mainnet-beta:** The default Solana public RPC (`https://api.mainnet-beta.solana.com`) does **not** support sending transactions. Ask the user for an RPC provider, If the user has not provided their own RPC URL, use one of these free mainnet-beta endpoints that support `sendTransaction`:
 
 - **Solana Tracker** — `https://rpc.solanatracker.io/public`
 - **Ankr** — `https://rpc.ankr.com/solana`
