@@ -67,16 +67,16 @@ Read these values from `process.env` at runtime. Never hard-code mint addresses 
 ## Install
 
 ```bash
-npm install @pump-fun/agent-payments-sdk @solana/web3.js @coral-xyz/anchor
+npm install @pump-fun/agent-payments-sdk @solana/web3.js
 ```
 
 ### Dependency Compatibility — IMPORTANT
 
-`@pump-fun/agent-payments-sdk` depends on `@coral-xyz/anchor`, `@solana/web3.js`, and `@solana/spl-token`. When the app also installs these packages directly, mismatched versions can cause runtime errors (duplicate `BN` constructors, IDL decode failures, etc.).
+`@pump-fun/agent-payments-sdk` depends on `@solana/web3.js` and `@solana/spl-token`. When the app also installs these packages directly, mismatched versions can cause runtime errors.
 
 **Rules:**
 
-1. Before installing `@coral-xyz/anchor`, `@solana/web3.js`, `@solana/spl-token`, or any `@solana/wallet-adapter-*` package, first check what versions `@pump-fun/agent-payments-sdk` declares in its own `package.json` (inspect it via `npm info @pump-fun/agent-payments-sdk dependencies`). Install the same ranges — or ranges that resolve to the same major.minor — so npm/pnpm hoists a single copy instead of two.
+1. Before installing `@solana/web3.js`, `@solana/spl-token`, or any `@solana/wallet-adapter-*` package, first check what versions `@pump-fun/agent-payments-sdk` declares in its own `package.json` (inspect it via `npm info @pump-fun/agent-payments-sdk dependencies`). Install the same ranges — or ranges that resolve to the same major.minor — so npm/pnpm hoists a single copy instead of two.
 2. Never blindly install "latest" for these shared packages. Always prefer the version that is most compatible with the latest `@pump-fun/agent-payments-sdk`.
 3. If the project already has these packages at different versions, align them to match the SDK and re-install.
 
@@ -120,7 +120,7 @@ const agent = new PumpAgent(agentMint, "mainnet", connection);
 
 ## Wallet Integration (Frontend)
 
-Install `@solana/wallet-adapter-react`, `@solana/wallet-adapter-react-ui`, and `@solana/wallet-adapter-wallets`. Use `useWallet()` for `publicKey` and `signTransaction`, and `useConnection()` for the active RPC connection. MUST See [references/WALLET_INTEGRATION.md](https://raw.githubusercontent.com/pump-fun/pump-fun-skills/refs/heads/main/tokenized-agents/references/SCENARIOS.md) for the full WalletProvider setup, layout wrapping, and hook usage.
+Install `@solana/wallet-adapter-react`, `@solana/wallet-adapter-react-ui`, and `@solana/wallet-adapter-wallets`. Use `useWallet()` for `publicKey` and `signTransaction`, and `useConnection()` for the active RPC connection. MUST See [references/WALLET_INTEGRATION.md](https://raw.githubusercontent.com/pump-fun/pump-fun-skills/refs/heads/main/tokenized-agents/references/WALLET_INTEGRATION.md) for the full WalletProvider setup, layout wrapping, and hook usage.
 
 ## Building Payment Instructions
 
@@ -321,23 +321,20 @@ Use `validateInvoicePayment` to confirm that a specific invoice was paid on-chai
 
 ### Parameters
 
-All numeric parameters must be `BN` (from `@coral-xyz/anchor`).
-
 | Parameter      | Type        | Description                         |
 | -------------- | ----------- | ----------------------------------- |
 | `user`         | `PublicKey` | The wallet that paid                |
 | `currencyMint` | `PublicKey` | Currency used for payment           |
-| `amount`       | `BN`        | Amount paid (smallest unit)         |
-| `memo`         | `BN`        | The invoice memo                    |
-| `startTime`    | `BN`        | Invoice start time (Unix timestamp) |
-| `endTime`      | `BN`        | Invoice end time (Unix timestamp)   |
+| `amount`       | `number`    | Amount paid (smallest unit)         |
+| `memo`         | `number`    | The invoice memo                    |
+| `startTime`    | `number`    | Invoice start time (Unix timestamp) |
+| `endTime`      | `number`    | Invoice end time (Unix timestamp)   |
 
 ### Simple Backend Verification
 
 ```typescript
 import { PumpAgent } from "@pump-fun/agent-payments-sdk";
 import { PublicKey } from "@solana/web3.js";
-import { BN } from "@coral-xyz/anchor";
 
 const agentMint = new PublicKey(process.env.AGENT_TOKEN_MINT_ADDRESS!);
 const agent = new PumpAgent(agentMint);
@@ -345,10 +342,10 @@ const agent = new PumpAgent(agentMint);
 const paid = await agent.validateInvoicePayment({
   user: new PublicKey(userWalletAddress),
   currencyMint: new PublicKey(process.env.CURRENCY_MINT!),
-  amount: new BN("1000000"),
-  memo: new BN("123456789"),
-  startTime: new BN("1700000000"),
-  endTime: new BN("1700086400"),
+  amount: 1000000,
+  memo: 123456789,
+  startTime: 1700000000,
+  endTime: 1700086400,
 });
 
 if (paid) {
@@ -379,10 +376,10 @@ async function verifyPayment(params: {
   const invoiceParams = {
     user: new PublicKey(params.user),
     currencyMint: new PublicKey(params.currencyMint),
-    amount: new BN(params.amount),
-    memo: new BN(params.memo),
-    startTime: new BN(params.startTime),
-    endTime: new BN(params.endTime),
+    amount: Number(params.amount),
+    memo: Number(params.memo),
+    startTime: Number(params.startTime),
+    endTime: Number(params.endTime),
   };
 
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -393,19 +390,6 @@ async function verifyPayment(params: {
 
   return false;
 }
-```
-
-### Tip: Converting from Simple Types to BN
-
-If you have `string` or `number` values from your invoice params, convert them to `BN` before calling `validateInvoicePayment`:
-
-```typescript
-import { BN } from "@coral-xyz/anchor";
-
-const amount = new BN("1000000");
-const memo = new BN("123456789");
-const startTime = new BN("1700000000");
-const endTime = new BN("1700086400");
 ```
 
 ## End-to-End Flow
@@ -432,4 +416,4 @@ const endTime = new BN("1700086400");
 
 ## Scenario Tests & Troubleshooting
 
-See [references/SCENARIOS.md](https://raw.githubusercontent.com/pump-fun/pump-fun-skills/refs/heads/main/tokenized-agents/references/SCENARIOS.md) for detailed test scenarios (happy path, duplicate rejection, expired invoices, etc.) and a troubleshooting table for common errors and for wallet Integration must follow [references/WALLET_INTEGRATION.md](https://raw.githubusercontent.com/pump-fun/pump-fun-skills/refs/heads/main/tokenized-agents/references/SCENARIOS.md).
+See [references/SCENARIOS.md](https://raw.githubusercontent.com/pump-fun/pump-fun-skills/refs/heads/main/tokenized-agents/references/SCENARIOS.md) for detailed test scenarios (happy path, duplicate rejection, expired invoices, etc.) and a troubleshooting table for common errors and for wallet Integration must follow [references/WALLET_INTEGRATION.md](https://raw.githubusercontent.com/pump-fun/pump-fun-skills/refs/heads/main/tokenized-agents/references/WALLET_INTEGRATION.md).
