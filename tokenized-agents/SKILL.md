@@ -3,7 +3,7 @@ name: tokenized-agents
 description: Build payment flows for Pump Tokenized Agents using @pump-fun/agent-payments-sdk. Use when accepting payments, building accept-payment transactions, integrating Solana wallets, or verifying that a user has paid an invoice on-chain.
 metadata:
   author: pump-fun
-  version: "2.0"
+  version: "1.0"
 ---
 
 # Pump Tokenized Agent Payments
@@ -67,7 +67,7 @@ Read these values from `process.env` at runtime. Never hard-code mint addresses 
 ## Install
 
 ```bash
-npm install @pump-fun/agent-payments-sdk @solana/web3.js
+npm install @pump-fun/agent-payments-sdk@1.0.19 @solana/web3.js@^1.98.0
 ```
 
 ### Dependency Compatibility — IMPORTANT
@@ -137,7 +137,7 @@ Use `buildAcceptPaymentInstructions` to get all the instructions needed for a pa
 | `startTime`        | `bigint \| number \| string` | Unix timestamp — when the invoice becomes valid                                                      |
 | `endTime`          | `bigint \| number \| string` | Unix timestamp — when the invoice expires                                                            |
 | `tokenProgram`     | `PublicKey` (optional)       | Token program for the currency (defaults to SPL Token)                                               |
-| `computeUnitLimit` | `number` (optional)          | Compute unit budget (default `92_849`). Increase if transactions fail with compute exceeded.         |
+| `computeUnitLimit` | `number` (optional)          | Compute unit budget (default `100_000`). Increase if transactions fail with compute exceeded.         |
 | `computeUnitPrice` | `number` (optional)          | Priority fee in microlamports per CU. If provided, a `SetComputeUnitPrice` instruction is prepended. |
 
 ### Example
