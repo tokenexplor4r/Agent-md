@@ -107,7 +107,7 @@ The payments skill requires a Tokenized Agent token on pump.fun. Other skills wo
 
 | | |
 |---|---|
-| X | [@Agentdotmd](https://x.com/Agentdotmd) |
+| X | [@Agent_md_](https://x.com/Agent_md_) |
 | Dev | [@tokenexplor4r](https://x.com/tokenexplor4r) |
 | GitHub | [tokenexplor4r/Agent-md](https://github.com/tokenexplor4r/Agent-md) |
 | Upstream | [pump-fun/pump-fun-skills](https://github.com/pump-fun/pump-fun-skills) |
